@@ -1389,12 +1389,23 @@ public:
         int64_t endR = regionIndices[1];
         int64_t originC = regionIndices[2];
         int64_t endC = regionIndices[3];
-        int32_t numRows = endR - originR + 1;
-        int32_t numCols = endC - originC + 1;
-        float matrix[numRows][numCols];
-        for(int32_t r = 0; r < numRows; r++){
-            for(int32_t c = 0; c < numCols; c++){
-                matrix[r][c] = 0;
+        int32_t const numRows = endR - originR + 1;
+        int32_t const numCols = endC - originC + 1;
+		/*
+        * The 'pseudo_matrix' below was originally just initialized as
+        * `float matrix[numrows][numCols];`, but this cause the compiler
+        * to throw an error saying you can't initialize this variable with
+        * non-constant values (numRows and numCols aren't known at compile time).
+        * It probably would have been faster to use a stack allocated 2D array,
+        * but I don't see how this could have been compiled (why was the code written
+        * like this when I got it???).
+        */
+        float* pseudo_matrix = (float*)malloc(sizeof(float) * numRows * numCols);
+        int offset;
+        for (int32_t r = 0; r < numRows; r++) {
+            for (int32_t c = 0; c < numCols; c++) {
+                offset = r + numRows * c;
+                pseudo_matrix[offset] = 0;
             }
         }
 
@@ -1403,26 +1414,31 @@ public:
             int32_t r = cr.binX / resolution - originR;
             int32_t c = cr.binY / resolution - originC;
             if (isInRange(r, c, numRows, numCols)) {
-                matrix[r][c] = cr.counts;
+                offset = r + numRows * c;
+                pseudo_matrix[offset] = cr.counts;
             }
             if (isIntra) {
                 r = cr.binY / resolution - originR;
                 c = cr.binX / resolution - originC;
                 if (isInRange(r, c, numRows, numCols)) {
-                    matrix[r][c] = cr.counts;
+                    offset = r + numRows * c;
+                    pseudo_matrix[offset] = cr.counts;
                 }
             }
         }
 
-        vector<vector<float> > finalMatrix;
+        vector<vector<float>> finalMatrix;
         for (int32_t i = 0; i < numRows; i++) {
             vector<float> row;
             row.reserve(numCols);
             for (int32_t j = 0; j < numCols; j++) {
-                row.push_back(matrix[i][j]);
+                offset = i + numRows * j;
+                row.push_back(pseudo_matrix[offset]);
             }
             finalMatrix.push_back(row);
         }
+
+        free(pseudo_matrix);
         return finalMatrix;
     }
 
@@ -1519,7 +1535,14 @@ public:
     }
 
     vector<chromosome> getChromosomes() {
-        chromosome chromosomes[chromosomeMap.size()];
+        // chromosome chromosomes[chromosomeMap.size()];
+		/*
+        * As with the 'pseudo_matrix' used above, I had to change 'chromosomes'
+        * to a heap allocated array, otherwise the compiler would complain that I 
+        * was initializing with a constant...
+        * (the original assignment is commented out immediately above)
+        */
+        chromosome* chromosomes = (chromosome*)malloc(sizeof(chromosome) * chromosomeMap.size());
         map<string, chromosome>::iterator iter = chromosomeMap.begin();
         while (iter != chromosomeMap.end()) {
             chromosome chrom = static_cast<chromosome>(iter->second);
@@ -1530,8 +1553,11 @@ public:
         vector<chromosome> final_chromosomes;
         final_chromosomes.reserve(chromosomeMap.size());
         for(int32_t i = 0; i < chromosomeMap.size(); i++){
-            final_chromosomes.push_back(chromosomes[i]);
+            if (&chromosomes[i] != NULL) {
+                final_chromosomes.push_back(chromosomes[i]);
+            }
         }
+        free(chromosomes);
         return final_chromosomes;
     }
 
